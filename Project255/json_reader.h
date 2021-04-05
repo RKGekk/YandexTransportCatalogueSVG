@@ -7,6 +7,7 @@
 
 #include "domain.h"
 #include "json.h"
+#include "json_builder.h"
 
 /*
  * Здесь можно разместить код наполнения транспортного справочника данными из JSON,
@@ -27,6 +28,9 @@ private:
 	std::string getStopName(std::istream& in);
 	Coordinates getCoordinates(std::istream& in);
 	Coordinates getCoordinates(const std::string& lat, const std::string& lng);
+
+	void GetStop(std::vector<std::unique_ptr<UserInputData>>& res, std::istream& in);
+	void GetBus(std::vector<std::unique_ptr<UserInputData>>& res, std::istream& in);
 
 	strong_splitter _coordinatesSplitter;
 	strong_splitter _distancesSplitter;
@@ -74,6 +78,9 @@ public:
 	std::vector<std::unique_ptr<UserInputData>> getUserInput(const json::Document& doc);
 private:
 	Coordinates getCoordinates(const std::string& lat, const std::string& lng);
+
+	void GetStop(std::vector<std::unique_ptr<UserInputData>>& res, const json::Dict& rq);
+	void GetBus(std::vector<std::unique_ptr<UserInputData>>& res, const json::Dict& rq);
 };
 
 class StatReaderJson : public StatReader {

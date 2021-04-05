@@ -55,7 +55,6 @@ std::unique_ptr<Derived> InputReaderFactory::Create() {
 }
 
 std::vector<std::unique_ptr<UserInputData>> InputReaderText::getUserInput(std::istream& in) {
-
 	std::vector<std::unique_ptr<UserInputData>> res;
 
 	int ct = 0;
@@ -65,34 +64,10 @@ std::vector<std::unique_ptr<UserInputData>> InputReaderText::getUserInput(std::i
 		std::string command;
 		in >> command;
 		if (command == "Stop") {
-			std::string stopName = getStopName(in);
-			std::vector<std::string> s = _basicÑommaSplitter->Split(in);
-			Distances distances;
-			if (s.size() == 2) {
-				res.push_back(std::make_unique<RouteStopInputData>(std::move(stopName), getCoordinates(s[0], s[1]), std::move(distances)));
-			}
-			else {
-				Coordinates c = getCoordinates(s[0], s[1]);
-				for (auto it = s.begin() + 2; it != s.end(); ++it) {
-					std::vector<std::string> ds = _distancesSplitter->Split(*it);
-					std::string stopName = ds[1];
-					ftrim(stopName);
-					if constexpr (std::is_integral_v<dist>) { distances.insert({ stopName, std::stoi(ds[0]) }); }
-					if constexpr (std::is_floating_point_v<dist>) { distances.insert({ stopName, std::stod(ds[0]) }); }
-				}
-				res.push_back(std::make_unique<RouteStopInputData>(std::move(stopName), c, std::move(distances)));
-			}
+			GetStop(res, in);
 		}
 		else if (command == "Bus") {
-			BusID bid = getStopName(in);
-			std::string line;
-			std::getline(in, line);
-			if (line.find_first_of(_stopNameSplitterStraight->getSeparatorVerb()) != std::string::npos) {
-				res.push_back(std::make_unique<BusInputData>(_stopNameSplitterStraight->Split(line), bid, false));
-			}
-			else {
-				res.push_back(std::make_unique<BusInputData>(_stopNameSplitterCircle->Split(line), bid, true));
-			}
+			GetBus(res, in);
 		}
 	}
 
@@ -123,6 +98,38 @@ Coordinates InputReaderText::getCoordinates(const std::string& lat, const std::s
 	return Coordinates{ std::stod(lat), std::stod(lng) };
 }
 
+void InputReaderText::GetStop(std::vector<std::unique_ptr<UserInputData>>& res, std::istream& in) {
+	std::string stopName = getStopName(in);
+	std::vector<std::string> s = _basicÑommaSplitter->Split(in);
+	Distances distances;
+	if (s.size() == 2) {
+		res.push_back(std::make_unique<RouteStopInputData>(std::move(stopName), getCoordinates(s[0], s[1]), std::move(distances)));
+	}
+	else {
+		Coordinates c = getCoordinates(s[0], s[1]);
+		for (auto it = s.begin() + 2; it != s.end(); ++it) {
+			std::vector<std::string> ds = _distancesSplitter->Split(*it);
+			std::string stopName = ds[1];
+			ftrim(stopName);
+			if constexpr (std::is_integral_v<dist>) { distances.insert({ stopName, std::stoi(ds[0]) }); }
+			if constexpr (std::is_floating_point_v<dist>) { distances.insert({ stopName, std::stod(ds[0]) }); }
+		}
+		res.push_back(std::make_unique<RouteStopInputData>(std::move(stopName), c, std::move(distances)));
+	}
+}
+
+void InputReaderText::GetBus(std::vector<std::unique_ptr<UserInputData>>& res, std::istream& in) {
+	BusID bid = getStopName(in);
+	std::string line;
+	std::getline(in, line);
+	if (line.find_first_of(_stopNameSplitterStraight->getSeparatorVerb()) != std::string::npos) {
+		res.push_back(std::make_unique<BusInputData>(_stopNameSplitterStraight->Split(line), bid, false));
+	}
+	else {
+		res.push_back(std::make_unique<BusInputData>(_stopNameSplitterCircle->Split(line), bid, true));
+	}
+}
+
 InputReaderJson::InputReaderJson() {}
 
 std::vector<std::unique_ptr<UserInputData>> InputReaderJson::getUserInput(std::istream& in) {
@@ -133,40 +140,48 @@ Coordinates InputReaderJson::getCoordinates(const std::string& lat, const std::s
 	return Coordinates{ std::stod(lat), std::stod(lng) };
 }
 
+void InputReaderJson::GetStop(std::vector<std::unique_ptr<UserInputData>>& res, const json::Dict& rq) {
+	Distances distances;
+	for (const auto& [key, value] : rq.at("road_distances").AsDict()) {
+		distances.insert({ key, value.AsInt() });
+	}
+	res.push_back(
+		std::make_unique<RouteStopInputData>(
+			rq.at("name").AsString(),
+			Coordinates{ rq.at("latitude").AsDouble(), rq.at("longitude").AsDouble() },
+			std::move(distances)
+		)
+	);
+}
+
+void InputReaderJson::GetBus(std::vector<std::unique_ptr<UserInputData>>& res, const json::Dict& rq) {
+	std::vector<std::string> stop_names;
+	const json::Array& names = rq.at("stops").AsArray();
+	stop_names.reserve(names.size());
+	for (const auto& node : names) {
+		stop_names.push_back(node.AsString());
+	}
+	res.push_back(
+		std::make_unique<BusInputData>(
+			std::move(stop_names),
+			rq.at("name").AsString(),
+			rq.at("is_roundtrip").AsBool()
+		)
+	);
+}
+
 std::vector<std::unique_ptr<UserInputData>> InputReaderJson::getUserInput(const json::Document& doc) {
 	std::vector<std::unique_ptr<UserInputData>> res;
-	const json::Array& base_requests = doc.GetRoot().AsMap().at("base_requests").AsArray();
+	const json::Array& base_requests = doc.GetRoot().AsDict().at("base_requests").AsArray();
 	res.reserve(base_requests.size());
 	for (auto it = base_requests.cbegin(); it != base_requests.cend(); ++it) {
-		const json::Dict& rq = (*it).AsMap();
+		const json::Dict& rq = (*it).AsDict();
 		const std::string& command = rq.at("type").AsString();
 		if (command == "Stop") {
-			Distances distances;
-			for (const auto& [key, value] : rq.at("road_distances").AsMap()) {
-				distances.insert({ key, value.AsInt() });
-			}
-			res.push_back(
-				std::make_unique<RouteStopInputData>(
-					rq.at("name").AsString(),
-					Coordinates{ rq.at("latitude").AsDouble(), rq.at("longitude").AsDouble() },
-					std::move(distances)
-					)
-			);
+			GetStop(res, rq);
 		}
 		else if (command == "Bus") {
-			std::vector<std::string> stop_names;
-			const json::Array& names = rq.at("stops").AsArray();
-			stop_names.reserve(names.size());
-			for (const auto& node : names) {
-				stop_names.push_back(node.AsString());
-			}
-			res.push_back(
-				std::make_unique<BusInputData>(
-					std::move(stop_names),
-					rq.at("name").AsString(),
-					rq.at("is_roundtrip").AsBool()
-					)
-			);
+			GetBus(res, rq);
 		}
 	}
 
@@ -240,10 +255,10 @@ std::vector<std::unique_ptr<UserStatData>> StatReaderJson::getUserStat(std::istr
 
 std::vector<std::unique_ptr<UserStatData>> StatReaderJson::getUserStat(const json::Document& doc) {
 	std::vector<std::unique_ptr<UserStatData>> res;
-	const json::Array& stat_requests = doc.GetRoot().AsMap().at("stat_requests").AsArray();
+	const json::Array& stat_requests = doc.GetRoot().AsDict().at("stat_requests").AsArray();
 	res.reserve(stat_requests.size());
 	for (auto it = stat_requests.cbegin(); it != stat_requests.cend(); ++it) {
-		const json::Dict& rq = (*it).AsMap();
+		const json::Dict& rq = (*it).AsDict();
 		const std::string& command = rq.at("type").AsString();
 		if (command == "Bus") {
 			res.push_back(
@@ -276,7 +291,7 @@ std::vector<std::unique_ptr<UserStatData>> StatReaderJson::getUserStat(const jso
 
 RenderSettings StatReaderJson::getRenderSettings(const json::Document& doc) {
 	RenderSettings res;
-	const json::Dict& render_settings = doc.GetRoot().AsMap().at("render_settings").AsMap();
+	const json::Dict& render_settings = doc.GetRoot().AsDict().at("render_settings").AsDict();
 	res.width = render_settings.at("width").AsDouble();
 	res.height = render_settings.at("height").AsDouble();
 	res.padding = render_settings.at("padding").AsDouble();

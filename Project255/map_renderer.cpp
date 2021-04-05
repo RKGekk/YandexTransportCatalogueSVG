@@ -65,8 +65,6 @@ std::vector<svg::Polyline> RoutePicture::CreateRouteLineStrip() const {
 RoutePictureRef::RoutePictureRef(const RenderSettings& settings, LocalBusFullRef info) : m_render_settings(settings), m_routes_info(info) {}
 
 void RoutePictureRef::Draw(svg::ObjectContainer& container) const {
-    //DrawRouteLineStrip(container);
-    //DrawRouteNames(container);
 
     size_t color_ct = 0;
     size_t colors = m_render_settings.color_palette.size();

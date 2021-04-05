@@ -1,6 +1,7 @@
 #include "request_handler.h"
 
 #include "json.h"
+#include "json_builder.h"
 
 /*
  * «десь можно было бы разместить код обработчика запросов к базе, содержащего логику, которую не
@@ -130,6 +131,33 @@ void ProcessBusDistanceJson(const TransportCatalogue& transport_catalog, const s
 	json::Print(json::Document{ json::Node(res) }, out);
 }
 
+void ProcessBusDistanceJson2(const TransportCatalogue& transport_catalog, const std::unique_ptr<UserStatData>& userStatData, std::ostream& out) {
+	
+	json::Builder builder{};
+	builder.StartDict()
+		.Key("request_id"s).Value(userStatData->getRequestID());
+
+	BusStatInputData* stopData = static_cast<BusStatInputData*>(userStatData.get());
+	BusID& bid = stopData->getBusID();
+	if (transport_catalog.isBusIDExists(bid)) {
+		const Route& rt = transport_catalog.findRouteByBusID(bid);
+
+		double d = transport_catalog.routeDistance(bid);
+		double l = transport_catalog.routeLength(bid);
+		builder
+			.Key("stop_count"s).Value((int)(rt.isRouteCircle ? rt.stops.size() + 1 : rt.stops.size() + rt.stops.size() - 1))
+			.Key("unique_stop_count"s).Value((int)rt.stops.size())
+			.Key("route_length"s).Value(d)
+			.Key("curvature"s).Value((d / l));
+	}
+	else {
+		builder
+			.Key("error_message"s).Value("not found"s);
+	}
+	builder.EndDict();
+	json::Print(json::Document{ builder.Build()}, out);
+}
+
 void ProcessStopJson(const TransportCatalogue& transport_catalog, const std::unique_ptr<UserStatData>& userStatData, std::ostream& out) {
 	json::Dict res;
 	res.insert({ "request_id"s, userStatData->getRequestID() });
@@ -155,6 +183,37 @@ void ProcessStopJson(const TransportCatalogue& transport_catalog, const std::uni
 	json::Print(json::Document{ json::Node(res) }, out);
 }
 
+void ProcessStopJson2(const TransportCatalogue& transport_catalog, const std::unique_ptr<UserStatData>& userStatData, std::ostream& out) {
+	json::Builder builder{};
+	builder.StartDict()
+		.Key("request_id"s).Value(userStatData->getRequestID());
+
+	StopStatInputData* stopData = static_cast<StopStatInputData*>(userStatData.get());
+	std::string& stopName = stopData->getStopName();
+	if (transport_catalog.isStopNameExists(stopName)) {
+		std::vector<Trace> traces = transport_catalog.findTracesByStopName(stopName);
+		if (traces.size() == 0) {
+			builder
+				.Key("error_message"s).Value("not found"s);
+		}
+		else {
+			builder
+				.Key("buses"s)
+				.StartArray();
+			for (Trace trace : traces) {
+				builder.Key(trace.bus_num);
+			}
+			builder.EndArray();
+		}
+	}
+	else {
+		builder
+			.Key("error_message"s).Value("not found"s);
+	}
+	builder.EndDict();
+	json::Print(json::Document{ builder.Build() }, out);
+}
+
 void ProcessMapJson(const TransportCatalogue& transport_catalog, const std::unique_ptr<UserStatData>& userStatData, std::ostream& out) {
 	json::Dict res;
 	res.insert({ "request_id"s, userStatData->getRequestID() });
@@ -172,6 +231,30 @@ void ProcessMapJson(const TransportCatalogue& transport_catalog, const std::uniq
 	res.insert({ "map"s, myString.str() });
 	
 	json::Print(json::Document{ json::Node(res) }, out);
+}
+
+void ProcessMapJson2(const TransportCatalogue& transport_catalog, const std::unique_ptr<UserStatData>& userStatData, std::ostream& out) {
+	MapStatInputData* stopData = static_cast<MapStatInputData*>(userStatData.get());
+	const RenderSettings& render_settings = stopData->getRenderSettings();
+
+	svg::Document doc;
+	RoutePictureRef picture(render_settings, transport_catalog.getAllRoutesInfoRef());
+	picture.Draw(doc);
+
+	std::ostringstream myString;
+	doc.Render(myString);
+
+	json::Print(
+		json::Document{
+			json::Builder{}
+			.StartDict()
+				.Key("request_id"s).Value(userStatData->getRequestID())
+				.Key("map"s).Value(myString.str())
+			.EndDict()
+			.Build()
+		},
+		out
+	);
 }
 
 void ProcessStop(const TransportCatalogue& transport_catalog, const std::unique_ptr<UserStatData>& userStatData, std::ostream& out) {
@@ -226,9 +309,9 @@ StatDataProcessor StatDataProcessorFactory::Create(StreamType st) {
 		res.RegisterProcess(StatRequestType::StopStat, ProcessStop);
 	}
 	if (st == StreamType::JSON) {
-		res.RegisterProcess(StatRequestType::BusStat, ProcessBusDistanceJson);
-		res.RegisterProcess(StatRequestType::StopStat, ProcessStopJson);
-		res.RegisterProcess(StatRequestType::Map, ProcessMapJson);
+		res.RegisterProcess(StatRequestType::BusStat, ProcessBusDistanceJson2);
+		res.RegisterProcess(StatRequestType::StopStat, ProcessStopJson2);
+		res.RegisterProcess(StatRequestType::Map, ProcessMapJson2);
 		res.RegisterEventListener({ connect_arg<&StartEventHandlerJson> }, EvtData_Before_Start_Processing::sk_EventType);
 		res.RegisterEventListener({ connect_arg<&EndEventHandlerJson> }, EvtData_After_End_Processing::sk_EventType);
 		res.RegisterEventListener({ connect_arg<&MidEventHandlerJson> }, EvtData_Before_User_Data_Processing::sk_EventType);

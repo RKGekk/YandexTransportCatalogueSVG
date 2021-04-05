@@ -3,83 +3,66 @@
 #include <iostream>
 #include <map>
 #include <string>
-#include <vector>
 #include <variant>
-#include <string_view>
-#include <stdexcept>
+#include <vector>
 
 namespace json {
 
-    class Node;
-    using Dict = std::map<std::string, Node>;
-    using Array = std::vector<Node>;
-    using NodeValue = std::variant<std::nullptr_t, Array, Dict, bool, int, double, std::string>;
+	class Node;
+	using Dict = std::map<std::string, Node>;
+	using Array = std::vector<Node>;
 
-    // Эта ошибка должна выбрасываться при ошибках парсинга JSON
-    class ParsingError : public std::runtime_error {
-    public:
-        using runtime_error::runtime_error;
-    };
+	class ParsingError : public std::runtime_error {
+	public:
+		using runtime_error::runtime_error;
+	};
 
-    class Node {
-    public:
-        Node();
-        template <typename T>
-        Node(T v) : value_(std::move(v)) {}
+	class Node final : private std::variant<std::nullptr_t, Array, Dict, bool, int, double, std::string> {
+	public:
+		using variant::variant;
+		using Value = variant;
 
-        bool IsNull() const noexcept;
-        bool IsInt() const noexcept;
-        bool IsDouble() const noexcept;
-        bool IsPureDouble() const noexcept;
-        bool IsString() const noexcept;
-        bool IsBool() const noexcept;
-        bool IsArray() const noexcept;
-        bool IsMap() const noexcept;
+		bool IsInt() const;
+		int AsInt()  const;
 
-        bool operator==(const Node& node) const noexcept;
-        bool operator!=(const Node& node) const noexcept;
+		bool IsPureDouble() const;
+		bool IsDouble()     const;
+		double AsDouble()   const;
 
-        std::nullptr_t AsNull() const;
-        const std::string& AsString() const;
-        double AsDouble() const;
-        int AsInt() const;
-        const Array& AsArray() const;
-        const Dict& AsMap() const;
-        bool AsBool() const;
+		bool IsBool() const;
+		bool AsBool() const;
 
-    private:
-        NodeValue value_;
-    };
+		bool IsNull() const;
 
-    class Document {
-    public:
-        explicit Document(Node root);
+		bool IsArray()         const;
+		const Array& AsArray() const;
 
-        const Node& GetRoot() const;
+		bool IsString()               const;
+		const std::string& AsString() const;
 
-        bool operator==(const Document& doc) const noexcept;
-        bool operator!=(const Document& doc) const noexcept;
+		bool IsDict()        const;
+		const Dict& AsDict() const;
 
-    private:
-        Node root_;
-    };
+		bool operator==(const Node& rhs) const;
 
-    Document Load(std::istream& input);
+		const Value& GetValue() const;
+	};
 
-    void Print(const Document& doc, std::ostream& output);
+	inline bool operator!=(const Node& lhs, const Node& rhs);
 
-    struct NodePrinter {
-        std::ostream& output;
-        void operator()(std::nullptr_t);
-        void operator()(const std::string_view str);
-        void operator()(double value);
-        void operator()(int value);
-        void operator()(bool value);
-        void operator()(const Array& arr);
-        void operator()(const Dict& dict);
-        void PrintNode(const Node& node);
-    };
+	class Document {
+	public:
+		explicit Document(Node root);
 
-    Document LoadJSON(const std::string& s);
-    std::string Print(const Node& node);
-}  // namespace json
+		const Node& GetRoot() const;
+
+	private:
+		Node root_;
+	};
+
+	inline bool operator==(const Document& lhs, const Document& rhs);
+	inline bool operator!=(const Document& lhs, const Document& rhs);
+	Document Load(std::istream& input);
+
+	void Print(const Document& doc, std::ostream& output);
+}
